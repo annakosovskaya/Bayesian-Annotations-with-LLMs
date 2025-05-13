@@ -1,0 +1,8 @@
+# Ignore data directories
+data/
+llm_data/
+
+# Ignore cache files and directories
+*.cache
+cache/
+*__pycache__*
