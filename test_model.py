@@ -41,7 +41,7 @@ if __name__ == "__main__":
     )
 
     test_data = (
-        (annotations[train_size:], logits[train_size:])
+        (annotations[train_size:], logits[train_size:], True)
         if model in [multinomial, item_difficulty]
         else (annotators[train_size:], annotations[train_size:], logits[train_size:])
     )
@@ -57,30 +57,38 @@ if __name__ == "__main__":
         discrete_samples["y"]
     )
 
-    print(f'log loss over positions = {log_loss(annotations[train_size:].flatten(), annotator_probs.flatten())}')
-    print(f'log loss over items = {log_loss(np.rint(annotations[train_size:].mean(1)), annotator_probs.mean(1))}')
-    print('F1 score with position predictions')
+    pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
+    emp_probs = np.vstack((annotations[train_size:].mean(1), 1 - annotations[train_size:].mean(1)))
+
+    print(f'Average Jensen-Shannon divergence across items= {np.power(jensenshannon(emp_probs, probs), 2).mean()}')
+    print(f'Average KL divergence across items= {entropy(emp_probs, pred_probs).mean()}')
     print(
-        f'Binary F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1)}')
-    print(
-        f'Micro F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="micro")}')
-    print(
-        f'Macro F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="macro")}')
-    print(
-        f'Weighted F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="weighted")}')
-    print('F1 score with predictions of number of 1s out of all positions')
-    print(
-        f'Micro F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="micro")}')
-    print(
-        f'Macro F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="macro")}')
-    print(
-        f'Weighted F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="weighted")}')
-    print('F1 score with majority vote')
-    print(
-        f'Binary F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
-    print(
-        f'Micro F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="micro")}')
-    print(
-        f'Macro F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="macro")}')
-    print(
-        f'Weighted F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="weighted")}')
+        f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
+
+    # print(f'log loss over positions = {log_loss(annotations[train_size:].flatten(), annotator_probs.flatten())}')
+    # print(f'log loss over items = {log_loss(np.rint(annotations[train_size:].mean(1)), annotator_probs.mean(1))}')
+    # print('F1 score with position predictions')
+    # print(
+    #     f'Binary F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1)}')
+    # print(
+    #     f'Micro F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="micro")}')
+    # print(
+    #     f'Macro F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="macro")}')
+    # print(
+    #     f'Weighted F1 score = {f1_score(annotations[train_size:].flatten(), np.rint(annotator_probs).flatten(), pos_label=1, average="weighted")}')
+    # print('F1 score with predictions of number of 1s out of all positions')
+    # print(
+    #     f'Micro F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="micro")}')
+    # print(
+    #     f'Macro F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="macro")}')
+    # print(
+    #     f'Weighted F1 score = {f1_score(annotations[train_size:].sum(1), np.rint(annotator_probs).sum(1), average="weighted")}')
+    # print('F1 score with majority vote')
+    # print(
+    #     f'Binary F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
+    # print(
+    #     f'Micro F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="micro")}')
+    # print(
+    #     f'Macro F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="macro")}')
+    # print(
+    #     f'Weighted F1 score = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1, average="weighted")}')
