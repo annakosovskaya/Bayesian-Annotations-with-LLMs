@@ -22,7 +22,7 @@ if __name__ == "__main__":
     logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
-    model = dawid_skene
+    model = logistic_random_effects
 
     mcmc = MCMC(
         NUTS(model),
@@ -41,9 +41,9 @@ if __name__ == "__main__":
     )
 
     test_data = (
-        (annotations[train_size:], logits[train_size:])
+        (annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
         if model in [multinomial, item_difficulty]
-        else (annotators[train_size:], annotations[train_size:], logits[train_size:])
+        else (annotators[train_size:], annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
     )
 
     mcmc.run(random.PRNGKey(0), *train_data)

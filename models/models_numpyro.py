@@ -39,7 +39,7 @@ def multinomial(annotations,logits=None,test:bool=False):
             else:
                 numpyro.sample("y", dist.Categorical(zeta[c]), obs=annotations)
 
-def dawid_skene(positions, annotations,logits):
+def dawid_skene(positions, annotations,logits, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 2 of reference [1].
     """
@@ -59,9 +59,14 @@ def dawid_skene(positions, annotations,logits):
         # here we use Vindex to allow broadcasting for the second index `c`
         # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
         with numpyro.plate("position", num_positions):
-            y=numpyro.sample(
-                "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
-            )
+            if test:
+                y=numpyro.sample(
+                    "y", dist.Categorical(Vindex(beta)[positions, c, :])
+                )
+            else:
+                y=numpyro.sample(
+                    "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
+                )
 
 def mace(positions, annotations, logits):
     """
@@ -173,7 +178,7 @@ def item_difficulty(annotations,logits):
             numpyro.sample("y", dist.Categorical(logits=theta), obs=annotations)
 
 
-def logistic_random_effects(positions, annotations,logits):
+def logistic_random_effects(positions, annotations,logits, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
@@ -192,24 +197,26 @@ def logistic_random_effects(positions, annotations,logits):
             "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
 
+        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
+            theta = numpyro.sample("theta", dist.Normal(0, chi).to_event(1))
+            theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
+
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             with handlers.reparam(config={"beta": LocScaleReparam(0)}):
                 beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
                 beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)),obs = nn.softmax(logits).mean(0))
-    # pi = nn.softmax(logits).mean(0)
-    c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
-
     with numpyro.plate("item", num_items, dim=-2):
-        # c = numpyro.sample("c", dist.Categorical(pi), infer={"enumerate": "parallel"})
+        
+        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
-        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
-            theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
-            theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
+        theta = Vindex(theta)[c]
+        
 
         with numpyro.plate("position", num_positions):
-            logits = Vindex(beta)[positions, c, :] - theta
-            numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
+            y_logits = Vindex(beta)[positions, c, :] - theta
+            if test:
+                numpyro.sample("y", dist.Categorical(logits=y_logits))
+            else:
+                numpyro.sample("y", dist.Categorical(logits=y_logits), obs=annotations)
