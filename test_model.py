@@ -62,7 +62,7 @@ if __name__ == "__main__":
     pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
     emp_probs = np.vstack((annotations[train_size:].mean(1), 1 - annotations[train_size:].mean(1)))
 
-    print(f'Average Jensen-Shannon divergence across items= {np.power(jensenshannon(emp_probs, probs), 2).mean()}')
+    print(f'Average Jensen-Shannon divergence across items= {np.power(jensenshannon(emp_probs, pred_probs), 2).mean()}')
     print(f'Average KL divergence across items= {entropy(emp_probs, pred_probs).mean()}')
     print(
         f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
