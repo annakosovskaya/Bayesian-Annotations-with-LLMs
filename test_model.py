@@ -10,6 +10,8 @@ from numpyro.infer import MCMC, NUTS, Predictive
 
 
 from sklearn.metrics import log_loss,f1_score
+from scipy.stats import entropy
+from scipy.spatial.distance import jensenshannon
 
 
 from utils.data_utils import read_jsonl
@@ -22,7 +24,7 @@ if __name__ == "__main__":
     logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
-    model = dawid_skene
+    model = multinomial
 
     mcmc = MCMC(
         NUTS(model),
