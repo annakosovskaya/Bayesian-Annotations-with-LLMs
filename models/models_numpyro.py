@@ -1,5 +1,3 @@
-
-
 import numpy as np
 
 from jax import nn
@@ -10,6 +8,7 @@ from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.infer.reparam import LocScaleReparam
 from numpyro.ops.indexing import Vindex
+from numpyro.handlers import mask
 
 
 def multinomial(annotations,logits=None,test:bool=False):
@@ -39,34 +38,37 @@ def multinomial(annotations,logits=None,test:bool=False):
             else:
                 numpyro.sample("y", dist.Categorical(zeta[c]), obs=annotations)
 
-def dawid_skene(positions, annotations,logits, test:bool=False):
-    """
-    This model corresponds to the plate diagram in Figure 2 of reference [1].
-    """
+def dawid_skene(positions, annotations, masks, num_classes, use_llm_prior=False, logits=None, test:bool=False):
     num_annotators = int(np.max(positions)) + 1
-    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
+
+    llm_probs = nn.softmax(logits)
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             beta = numpyro.sample("beta", dist.Dirichlet(jnp.ones(num_classes)))
+    
+    if use_llm_prior:
+        assert llm_probs is not None, "LLM probabilities must be provided if use_llm_prior is True"
+        pi = jnp.array(llm_probs[:,np.newaxis,:])
 
-   
+    else:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+
     with numpyro.plate("item", num_items, dim=-2):
-        # c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
-        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+        c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
 
-        # here we use Vindex to allow broadcasting for the second index `c`
-        # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
         with numpyro.plate("position", num_positions):
-            if test:
-                y=numpyro.sample(
-                    "y", dist.Categorical(Vindex(beta)[positions, c, :])
-                )
-            else:
-                y=numpyro.sample(
-                    "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
-                )
+            with mask(mask=masks):
+                if test:
+                    y=numpyro.sample(
+                        "y", dist.Categorical(Vindex(beta)[positions, c, :])
+                    )
+                else:
+                    y=numpyro.sample(
+                        "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
+                    )
+
 
 def mace(positions, annotations, logits):
     """
