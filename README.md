@@ -34,7 +34,13 @@ The Dawid–Skene model assumes that each annotator has a confusion matrix that 
 
 ### Rest...
 
-### Results
+### Model Comparison
+
+| Model                        | Avg. JS Divergence | Avg. KL Divergence | Binary F1 (Majority Vote) |
+|-----------------------------|--------------------|--------------------|----------------------------|
+| Scikit-learn Logistic Reg.  | 0.3486             | 1.4264             | 0.3889                     |
+| Dawid–Skene                 | None               | None               | None                       |
+
 
 scikit-learn logistic regression numbers:
 Average Jensen-Shannon divergence across items= 0.34862660788676153
