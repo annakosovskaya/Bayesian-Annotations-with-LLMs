@@ -5,6 +5,7 @@ import config
 import numpy as np
 
 from jax import random, vmap
+import jax.numpy as jnp
 
 from numpyro.infer import MCMC, NUTS, Predictive
 
@@ -35,7 +36,7 @@ if __name__ == "__main__":
     splits = list(sss.split(logits, annotations_balance))
 
     # Choose model here
-    model = multinomial
+    model = item_difficulty
 
     # Collect results across splits
     js_divs = []
@@ -57,9 +58,13 @@ if __name__ == "__main__":
         ators_test         = annotators[test_idx]
 
         # Build NumPyro inputs depending on model signature
-        if model in [multinomial, item_difficulty]:
+        if model == multinomial:
             train_data = (ann_train, logits_train)
             test_data  = (ann_test,  logits_test, [True] * len(test_idx))
+        elif model == item_difficulty:
+            mask = jnp.array([True] * logits_train.shape[0] + [False] * logits_test.shape[0]).reshape(-1, 1)
+            mask = jnp.tile(mask, (1, 3))
+            train_data = (annotations,logits, mask)
         elif model == dawid_skene:
             train_data = (positions_, ann_train, masks_[train_idx], global_num_classes, True, logits_train)
             test_data  = (positions_, ann_test,  masks_[test_idx],  global_num_classes, True, logits_test, [True] * len(test_idx))
@@ -81,10 +86,17 @@ if __name__ == "__main__":
 
         posterior = mcmc.get_samples()
         predictive = Predictive(model, posterior, infer_discrete=True)
-        discrete_samples = predictive(random.PRNGKey(seed + 100), *test_data)
+        if model == item_difficulty:
+            discrete_samples = predictive(random.PRNGKey(seed + 100), *train_data)
+        else:
+            discrete_samples = predictive(random.PRNGKey(seed + 100), *test_data)
 
-
-        annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(discrete_samples["y"])
+        if model == item_difficulty:
+            annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(
+                discrete_samples["y_unobserved"][:, logits_train.shape[0]:],
+            )
+        else:
+            annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(discrete_samples["y"])
         pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
         emp_probs  = np.vstack((ann_test.mean(1),           1 - ann_test.mean(1)))
 
