@@ -27,6 +27,11 @@ Smth about the approach?
 ### Dawid-Skene
 The Dawid–Skene model assumes that each annotator has a confusion matrix that characterizes their likelihood of assigning each possible label given the true label. By iteratively estimating these confusion matrices and the true label distribution, the model infers the most probable true labels across the dataset. We extend this approach by using LLM logits as a prior.
 
+<p align="center">
+  <img src="images/Dawid-Skine.png" alt="Dawid–Skene model" width="500"><br>
+  <em>Reference: <a href="https://aclanthology.org/Q18-1040.pdf">Comparing Bayesian Models of Annotation</a></em>
+</p>
+
 ### Rest...
 
 ### Results
