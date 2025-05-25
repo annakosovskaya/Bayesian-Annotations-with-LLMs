@@ -64,83 +64,89 @@ def dawid_skene(positions, annotations,logits):
                 "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
             )
 
-def mace(positions, annotations, logits):
+def mace(positions, annotations, logits, test:bool=False): 
     """
     This model corresponds to the plate diagram in Figure 3 of reference [1].
     """
-    num_annotators = int(torch.max(positions)) + 1
-    num_classes = int(torch.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
-    with pyro.plate("annotator", num_annotators):
-        epsilon = pyro.sample("epsilon", dist.Dirichlet(torch.full(num_classes, 10)))
-        theta = pyro.sample("theta", dist.Beta(0.5, 0.5))
+    with numpyro.plate("annotator", num_annotators):
+        epsilon = numpyro.sample("epsilon", dist.Dirichlet(jnp.full(num_classes, 10)))
+        theta = numpyro.sample("theta", dist.Beta(0.5, 0.5))
 
-    c = pyro.sample("c", dist.Categorical(logits = logits[:,torch.newaxis,:]), infer={"enumerate": "parallel"})
+    if logits is None:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
-    with pyro.plate("item", num_items, dim=-2):
-        # c = pyro.sample(
-        #     "c",
-        #     dist.DiscreteUniform(0, num_classes - 1),
-        #     infer={"enumerate": "parallel"},
-        # )
+    with numpyro.plate("item", num_items, dim=-2):
 
-        # c = pyro.sample(
-        #     "c",
-        #     dist.Categorical(probs=nn.softmax(logits).mean(0)),
-        #     infer={"enumerate": "parallel"},
-        # )
+        if logits is None:
+            c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        else:
+            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
-        with pyro.plate("position", num_positions):
-            s = pyro.sample(
+        with numpyro.plate("position", num_positions):
+            s = numpyro.sample(
                 "s",
                 dist.Bernoulli(1 - theta[positions]),
                 infer={"enumerate": "parallel"},
             )
-            probs = torch.where(
-                s[..., None] == 0, F.one_hot(c, num_classes), epsilon[positions]
+            probs = jnp.where(
+                s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
             )
-            pyro.sample("y", dist.Categorical(probs), obs=annotations)
+            if test:
+                numpyro.sample("y", dist.Categorical(probs))
+            else:
+                numpyro.sample("y", dist.Categorical(probs), obs=annotations)
 
 
-def hierarchical_dawid_skene(positions, annotations,logits):
+
+def hierarchical_dawid_skene(positions, annotations,logits, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 4 of reference [1].
     """
-    num_annotators = int(torch.max(positions)) + 1
-    num_classes = int(torch.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
-    with pyro.plate("class", num_classes):
+    with numpyro.plate("class", num_classes):
         # NB: we define `beta` as the `logits` of `y` likelihood; but `logits` is
         # invariant up to a constant, so we'll follow [1]: fix the last term of `beta`
         # to 0 and only define hyperpriors for the first `num_classes - 1` terms.
-        zeta = pyro.sample(
+        zeta = numpyro.sample(
             "zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
         )
-        omega = pyro.sample(
+        omega = numpyro.sample(
             "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
 
-    with pyro.plate("annotator", num_annotators, dim=-2):
-        with pyro.plate("class", num_classes):
+    with numpyro.plate("annotator", num_annotators, dim=-2):
+        with numpyro.plate("class", num_classes):
             # non-centered parameterization
-            with poutine.reparam(config={"beta": LocScaleReparam(0)}):
-                beta = pyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
+            with handlers.reparam(config={"beta": LocScaleReparam(0)}):
+                beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
             # pad 0 to the last item
-            beta = F.pad(beta, [(0, 0)] * (beta.ndim - 1) + [(0, 1)])
+            beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
-    # pi = pyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-    # pi = pyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)),obs = nn.softmax(logits).mean(0))
-    # pi = nn.softmax(logits).mean(0)
-    c = pyro.sample("c", dist.Categorical(logits = logits[:,torch.newaxis,:]), infer={"enumerate": "parallel"})
+    if logits is None:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    
 
-    with pyro.plate("item", num_items, dim=-2):
-        # c = pyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+    with numpyro.plate("item", num_items, dim=-2):
+        if logits is None:
+            c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        else:
+            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
-        with pyro.plate("position", num_positions):
-            logits = Vindex(beta)[positions, c, :]
-            pyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
+        with numpyro.plate("position", num_positions):
+            if test:
+                local_logits = Vindex(beta)[positions, c, :]
+                numpyro.sample("y", dist.Categorical(logits=local_logits))
+            else:
+                local_logits = Vindex(beta)[positions, c, :]
+                numpyro.sample("y", dist.Categorical(logits=local_logits), obs=annotations)
+
 
 
 def item_difficulty(annotations,logits):
