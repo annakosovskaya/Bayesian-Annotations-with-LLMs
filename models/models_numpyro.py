@@ -70,7 +70,7 @@ def dawid_skene(positions, annotations, masks, num_classes, use_llm_prior=False,
                     )
 
 
-def mace(positions, annotations, logits):
+def mace(positions, annotations, logits, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 3 of reference [1].
     """
@@ -82,20 +82,15 @@ def mace(positions, annotations, logits):
         epsilon = numpyro.sample("epsilon", dist.Dirichlet(jnp.full(num_classes, 10)))
         theta = numpyro.sample("theta", dist.Beta(0.5, 0.5))
 
-    c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+    if logits is None:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
     with numpyro.plate("item", num_items, dim=-2):
-        # c = numpyro.sample(
-        #     "c",
-        #     dist.DiscreteUniform(0, num_classes - 1),
-        #     infer={"enumerate": "parallel"},
-        # )
 
-        # c = numpyro.sample(
-        #     "c",
-        #     dist.Categorical(probs=nn.softmax(logits).mean(0)),
-        #     infer={"enumerate": "parallel"},
-        # )
+        if logits is None:
+            c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        else:
+            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             s = numpyro.sample(
@@ -106,10 +101,14 @@ def mace(positions, annotations, logits):
             probs = jnp.where(
                 s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
             )
-            numpyro.sample("y", dist.Categorical(probs), obs=annotations)
+            if test:
+                numpyro.sample("y", dist.Categorical(probs))
+            else:
+                numpyro.sample("y", dist.Categorical(probs), obs=annotations)
 
 
-def hierarchical_dawid_skene(positions, annotations,logits):
+
+def hierarchical_dawid_skene(positions, annotations,logits, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 4 of reference [1].
     """
@@ -136,17 +135,24 @@ def hierarchical_dawid_skene(positions, annotations,logits):
             # pad 0 to the last item
             beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)),obs = nn.softmax(logits).mean(0))
-    # pi = nn.softmax(logits).mean(0)
-    c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+    if logits is None:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    
 
     with numpyro.plate("item", num_items, dim=-2):
-        # c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        if logits is None:
+            c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        else:
+            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
-            logits = Vindex(beta)[positions, c, :]
-            numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
+            if test:
+                local_logits = Vindex(beta)[positions, c, :]
+                numpyro.sample("y", dist.Categorical(logits=local_logits))
+            else:
+                local_logits = Vindex(beta)[positions, c, :]
+                numpyro.sample("y", dist.Categorical(logits=local_logits), obs=annotations)
+
 
 
 def item_difficulty(annotations,logits, test:bool=False ):
