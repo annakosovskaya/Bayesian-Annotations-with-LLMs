@@ -1,4 +1,4 @@
-
+import config
 import jax
 from jax import nn
 import numpy as np
