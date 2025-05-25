@@ -175,7 +175,7 @@ def item_difficulty(annotations,logits, test:bool=False ):
             if test:
                 numpyro.sample("y", dist.Categorical(logits=theta))
             else:
-            numpyro.sample("y", dist.Categorical(logits=theta[c]), obs=annotations)
+                numpyro.sample("y", dist.Categorical(logits=theta[c]), obs=annotations)
 
 
 def logistic_random_effects(positions, annotations,logits, test:bool=False):
