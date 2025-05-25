@@ -12,6 +12,8 @@ from numpyro.infer import MCMC, NUTS, Predictive
 from sklearn.metrics import log_loss,f1_score
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
+from sklearn.model_selection import StratifiedShuffleSplit
+
 
 
 from utils.data_utils import read_jsonl, process_annotations, create_annotator_mapping
@@ -26,52 +28,129 @@ if __name__ == "__main__":
     logits = np.load(config.LOGITS_PATH)
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
-    model = dawid_skene  # choose your model
+    #Prepare stratified splits
+    annotations_balance = np.sum(annotations, axis=1)
+    sss = StratifiedShuffleSplit(n_splits=5, test_size=0.1, random_state=42)
 
-    mcmc = MCMC(
-        NUTS(model),
-        num_warmup=1000,
-        num_samples=500,
-        num_chains=1,
-        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
-    )
+    splits = list(sss.split(logits, annotations_balance))
 
-    train_size = round(annotations.shape[0] * 0.9)
+    # Choose model here
+    model = multinomial
 
-    train_data = (
-        (annotations[:train_size], logits[:train_size])
-        if model in [multinomial, item_difficulty]
-        else (positions_, annotations_[:train_size], masks_[:train_size], global_num_classes, True, logits[:train_size])
-        if model == dawid_skene
-        else (annotators[:train_size], annotations[:train_size], logits[:train_size])
-    )
+    # Collect results across splits
+    js_divs = []
+    kl_divs = []
+    f1s    = []
 
-    test_data = (
-        (annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
-        if model in [multinomial, item_difficulty]
-        else (positions_, annotations_[train_size:], masks_[train_size:], global_num_classes, True, logits[train_size:], [True] * annotations[train_size:].shape[0])
-        if model == dawid_skene
-        else (annotators[train_size:], annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
-    )
 
-    mcmc.run(random.PRNGKey(0), *train_data)
-    mcmc.print_summary()
+    for fold_idx, (train_idx, test_idx) in enumerate(splits, 1):
+        print(f"\n=== Fold {fold_idx} ===")
 
-    posterior_samples = mcmc.get_samples()
-    predictive = Predictive(model, posterior_samples, infer_discrete=True)
-    discrete_samples = predictive(random.PRNGKey(1), *test_data)
+        # Slice data for this split
+        logits_train       = logits[train_idx]
+        logits_test        = logits[test_idx]
 
-    annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(
-        discrete_samples["y"]
-    )
+        ann_train          = annotations[train_idx]
+        ann_test           = annotations[test_idx]
 
-    pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
-    emp_probs = np.vstack((annotations[train_size:].mean(1), 1 - annotations[train_size:].mean(1)))
+        ators_train        = annotators[train_idx]
+        ators_test         = annotators[test_idx]
 
-    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(emp_probs, pred_probs), 2).mean()}')
-    print(f'Average KL divergence across items = {entropy(emp_probs, pred_probs).mean()}')
-    print(
-        f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
+        # Build NumPyro inputs depending on model signature
+        if model in [multinomial, item_difficulty]:
+            train_data = (ann_train, logits_train)
+            test_data  = (ann_test,  logits_test, [True] * len(test_idx))
+        elif model == dawid_skene:
+            train_data = (positions_, ann_train, masks_[train_idx], global_num_classes, True, logits_train)
+            test_data  = (positions_, ann_test,  masks_[test_idx],  global_num_classes, True, logits_test, [True] * len(test_idx))
+        else:  # hierarchical_dawid_skene, mace, logistic_random_effects
+            train_data = (ators_train, ann_train, logits_train)
+            test_data  = (ators_test,  ann_test,  logits_test,  [True] * len(test_idx))
+
+        mcmc = MCMC(
+            NUTS(model),
+            num_warmup=1000,
+            num_samples=500,
+            num_chains=1,
+            progress_bar=not ("NUMPYRO_SPHINXBUILD" in os.environ),
+        )
+
+        seed = 0 + fold_idx
+        mcmc.run(random.PRNGKey(seed), *train_data)
+        mcmc.print_summary()
+
+        posterior = mcmc.get_samples()
+        predictive = Predictive(model, posterior, infer_discrete=True)
+        discrete_samples = predictive(random.PRNGKey(seed + 100), *test_data)
+
+
+        annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(discrete_samples["y"])
+        pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
+        emp_probs  = np.vstack((ann_test.mean(1),           1 - ann_test.mean(1)))
+
+        js = np.power(jensenshannon(emp_probs, pred_probs), 2).mean()
+        kl = entropy(emp_probs, pred_probs).mean()
+        fv = f1_score(np.rint(ann_test.mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)
+
+        print(f"Average JS divergence = {js:.4f}")
+        print(f"Average KL divergence = {kl:.4f}")
+        print(f"Binary F1 (majority vote) = {fv:.4f}")
+
+        js_divs.append(js)
+        kl_divs.append(kl)
+        f1s.append(fv)
+
+    # --- Summary across folds ---
+    print("\n=== Cross-Validation Summary ===")
+    print(f"Mean JS divergence: {np.mean(js_divs):.4f} ± {np.std(js_divs):.4f}")
+    print(f"Mean KL divergence: {np.mean(kl_divs):.4f} ± {np.std(kl_divs):.4f}")
+    print(f"Mean F1 (maj. vote): {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")
+
+
+    # model = dawid_skene  # choose your model
+    #
+    # mcmc = MCMC(
+    #     NUTS(model),
+    #     num_warmup=1000,
+    #     num_samples=500,
+    #     num_chains=1,
+    #     progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    # )
+    #
+    # train_size = round(annotations.shape[0] * 0.9)
+    #
+    # train_data = (
+    #     (annotations[:train_size], logits[:train_size])
+    #     if model in [multinomial, item_difficulty]
+    #     else (positions_, annotations_[:train_size], masks_[:train_size], global_num_classes, True, logits[:train_size])
+    #     if model == dawid_skene
+    #     else (annotators[:train_size], annotations[:train_size], logits[:train_size])
+    # )
+    #
+    # test_data = (
+    #     (annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
+    #     if model in [multinomial, item_difficulty]
+    #     else (positions_, annotations_[train_size:], masks_[train_size:], global_num_classes, True, logits[train_size:], [True] * annotations[train_size:].shape[0])
+    #     if model == dawid_skene
+    #     else (annotators[train_size:], annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
+    # )
+    #
+    # mcmc.run(random.PRNGKey(0), *train_data)
+    # mcmc.print_summary()
+    #
+    # posterior_samples = mcmc.get_samples()
+    # predictive = Predictive(model, posterior_samples, infer_discrete=True)
+    # discrete_samples = predictive(random.PRNGKey(1), *test_data)
+    #
+    # annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(discrete_samples["y"]    )
+    #
+    # pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
+    # emp_probs = np.vstack((annotations[train_size:].mean(1), 1 - annotations[train_size:].mean(1)))
+    #
+    # print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(emp_probs, pred_probs), 2).mean()}')
+    # print(f'Average KL divergence across items = {entropy(emp_probs, pred_probs).mean()}')
+    # print(
+    #     f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
 
     # print(f'log loss over positions = {log_loss(annotations[train_size:].flatten(), annotator_probs.flatten())}')
     # print(f'log loss over items = {log_loss(np.rint(annotations[train_size:].mean(1)), annotator_probs.mean(1))}')
