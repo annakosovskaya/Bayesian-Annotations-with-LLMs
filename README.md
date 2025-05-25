@@ -8,7 +8,7 @@ We are working with a collection of text annotations provided by multiple annota
 
 - Since the true labels are unknown, we evaluate the model by how well it predicts the annotators' behavior.
 
-Note that not every annotator labels every text, which makes the implementation more technically challenging.
+Note that not every annotator labels every text, which makes the implementation more technically challenging. Our code assumes binary annotation, but it can be easily extended to multi-class settings.
 
 # Dataset 
 
@@ -19,7 +19,6 @@ We are comparing the following models:
 
 ## Baselines 
 ### Logistic regression 
-Smth about the approach?
 
 ### Using LLM predictions as a true answer 
 
@@ -39,13 +38,24 @@ The Dawid–Skene model assumes that each annotator has a confusion matrix that 
 | Model                        | Avg. JS Divergence | Avg. KL Divergence | Binary F1 (Majority Vote) |
 |-----------------------------|--------------------|--------------------|----------------------------|
 | Scikit-learn Logistic Reg.  | 0.3486             | 1.4264             | 0.3889                     |
-| Dawid–Skene                 | None               | None               | None                       |
+| Argmax Baseline             | 0.3822             | 1.9643             | 0.3568                     |
+| Dawid–Skene                 | 0.16246            | 0.5248             | 0.1421                     |
 
 
 scikit-learn logistic regression numbers:
 Average Jensen-Shannon divergence across items= 0.34862660788676153
 Average KL divergence across items= 1.4264024275823348
 Binary F1 score with majority vote = 0.3888888888888889
+
+Dawid-Skene:
+Average Jensen-Shannon divergence across items = 0.16245859740618374
+Average KL divergence across items = 0.5247890411539498
+Binary F1 score with majority vote = 0.1421012849584278
+
+------------- argmax baseline -------------
+Average Jensen-Shannon divergence across items = 0.3822287662462236
+Average KL divergence across items = 1.9642640337457955
+Binary F1 score with majority vote = 0.3567567567567568
 
 # Acknowledgements
 We strongly rely on the Bayesian models implementation provided in the [Pyro annotation example](https://num.pyro.ai/en/latest/examples/annotation.html) and the article ["Comparing Bayesian Models of Annotation"](https://aclanthology.org/Q18-1040.pdf).
