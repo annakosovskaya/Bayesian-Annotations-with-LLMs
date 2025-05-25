@@ -180,7 +180,7 @@ def item_difficulty(annotations,logits,mask=None):
         with numpyro.plate("position", num_positions):
             numpyro.sample("y", dist.Categorical(logits=theta), obs=annotations, obs_mask=mask)
 
-def logistic_random_effects(positions, annotations,logits, test:bool=False):
+def logistic_random_effects(positions, annotations,logits, mask=None):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
@@ -199,10 +199,6 @@ def logistic_random_effects(positions, annotations,logits, test:bool=False):
             "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
 
-        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
-            theta = numpyro.sample("theta", dist.Normal(0, chi).to_event(1))
-            theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
-
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             with handlers.reparam(config={"beta": LocScaleReparam(0)}):
@@ -213,12 +209,12 @@ def logistic_random_effects(positions, annotations,logits, test:bool=False):
         
         c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
-        theta = Vindex(theta)[c]
+        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
+            theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
+            theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
         
 
         with numpyro.plate("position", num_positions):
             y_logits = Vindex(beta)[positions, c, :] - theta
-            if test:
-                numpyro.sample("y", dist.Categorical(logits=y_logits))
-            else:
-                numpyro.sample("y", dist.Categorical(logits=y_logits), obs=annotations)
+            with numpyro.plate("position", num_positions):
+                numpyro.sample("y", dist.Categorical(logits=y_logits), obs=annotations, obs_mask=mask)
