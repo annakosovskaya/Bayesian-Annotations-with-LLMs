@@ -18,10 +18,10 @@ from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 
 if __name__ == "__main__":
 
-    res = read_jsonl("data/ghc_train.jsonl")
+    res = read_jsonl(config.TRAIN_FILE_PATH)
     annotators = np.array([np.array(it["annotators"]) for it in res if len(it["annotators"]) == 3])
     annotations = np.array([np.array(it["labels"]) for it in res if len(it["annotators"]) == 3])
-    logits = np.load("outputs/train/logits.npy")
+    logits = np.load(config.LOGITS_PATH)
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
     model = LogisticRegression(input_dim=logits.shape[1] + 1)
