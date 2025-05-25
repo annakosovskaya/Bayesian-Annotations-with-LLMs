@@ -1,5 +1,6 @@
 
 import jax
+from jax import nn
 import numpy as np
 from jax import grad, jit, vmap
 
@@ -15,13 +16,12 @@ from utils.data_utils import read_jsonl
 from models.logistic_regression_jax import LogisticRegression
 from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 
-# Example usage:
 if __name__ == "__main__":
 
     res = read_jsonl("data/ghc_train.jsonl")
     annotators = np.array([np.array(it["annotators"]) for it in res if len(it["annotators"]) == 3])
     annotations = np.array([np.array(it["labels"]) for it in res if len(it["annotators"]) == 3])
-    logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
+    logits = np.load("outputs/train/logits.npy")
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
     model = LogisticRegression(input_dim=logits.shape[1] + 1)
@@ -55,7 +55,18 @@ if __name__ == "__main__":
     pred = clf.predict(test_data[0])
     pred_probs = clf.predict_proba(test_data[0])[:, 1]
 
-    print(f'Average Jensen-Shannon divergence across items= {np.power(jensenshannon(test_data[1], pred_probs), 2).mean()}')
-    print(f'Average KL divergence across items= {entropy(test_data[1], pred_probs).mean()}')
+    print('------------- logistic regression -------------')
+    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(test_data[1], pred_probs), 2).mean()}')
+    print(f'Average KL divergence across items = {entropy(test_data[1], pred_probs).mean()}')
     print(
         f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(pred.reshape((-1, 3))).mean(1)), pos_label=1)}')
+    
+    # --------------- argmax baseline ---------------
+    prob_pred = np.copy(nn.softmax(interleaved_logits[train_size * annotators.shape[1]:], axis=-1))[:, 1]  # logits as predicted probabilities
+    argmax_pred = np.argmax(interleaved_logits[train_size * annotators.shape[1]:], axis=-1)
+
+    print('------------- argmax baseline -------------')
+    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(test_data[1], prob_pred), 2).mean()}')
+    print(f'Average KL divergence across items = {entropy(test_data[1], prob_pred).mean()}')
+    print(
+        f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(argmax_pred.reshape((-1, 3))).mean(1)), pos_label=1)}')
