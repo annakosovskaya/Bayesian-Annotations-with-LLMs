@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import config
 
 import numpy as np
 
@@ -17,13 +18,12 @@ from utils.data_utils import read_jsonl, process_annotations, create_annotator_m
 from models.models_numpyro import multinomial, item_difficulty, dawid_skene, hierarchical_dawid_skene, mace, logistic_random_effects
 
 if __name__ == "__main__":
-    res = read_jsonl("data/ghc_train.jsonl")
+    res = read_jsonl(config.TRAIN_FILE_PATH)
     annotators = np.array([np.array(it["annotators"]) for it in res if len(it["annotators"]) == 3])
     annotations = np.array([np.array(it["labels"]) for it in res if len(it["annotators"]) == 3])
     positions_, annotations_, masks_ = process_annotations(res)
     global_num_classes = int(np.max(annotations_)) + 1
-    logits = np.load("outputs/train/logits.npy")  # write right path
-    #logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
+    logits = np.load(config.LOGITS_PATH)
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
     model = dawid_skene  # choose your model
