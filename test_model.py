@@ -1,4 +1,3 @@
-
 import numpy as np
 import os
 
@@ -14,17 +13,20 @@ from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 
 
-from utils.data_utils import read_jsonl
+from utils.data_utils import read_jsonl, process_annotations, create_annotator_mapping
 from models.models_numpyro import multinomial, item_difficulty, dawid_skene, hierarchical_dawid_skene, mace, logistic_random_effects
 
 if __name__ == "__main__":
     res = read_jsonl("data/ghc_train.jsonl")
     annotators = np.array([np.array(it["annotators"]) for it in res if len(it["annotators"]) == 3])
     annotations = np.array([np.array(it["labels"]) for it in res if len(it["annotators"]) == 3])
-    logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
+    positions_, annotations_, masks_ = process_annotations(res)
+    global_num_classes = int(np.max(annotations_)) + 1
+    logits = np.load("outputs/train/logits.npy")  # write right path
+    #logits = np.load("llm_data/Qwen2.5-32B/train/logits.npy")
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
-    model = logistic_random_effects
+    model = dawid_skene  # choose your model
 
     mcmc = MCMC(
         NUTS(model),
@@ -39,12 +41,16 @@ if __name__ == "__main__":
     train_data = (
         (annotations[:train_size], logits[:train_size])
         if model in [multinomial, item_difficulty]
+        else (positions_, annotations_[:train_size], masks_[:train_size], global_num_classes, True, logits[:train_size])
+        if model == dawid_skene
         else (annotators[:train_size], annotations[:train_size], logits[:train_size])
     )
 
     test_data = (
         (annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
         if model in [multinomial, item_difficulty]
+        else (positions_, annotations_[train_size:], masks_[train_size:], global_num_classes, True, logits[train_size:], [True] * annotations[train_size:].shape[0])
+        if model == dawid_skene
         else (annotators[train_size:], annotations[train_size:], logits[train_size:], [True] * annotations[train_size:].shape[0])
     )
 
@@ -62,8 +68,8 @@ if __name__ == "__main__":
     pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
     emp_probs = np.vstack((annotations[train_size:].mean(1), 1 - annotations[train_size:].mean(1)))
 
-    print(f'Average Jensen-Shannon divergence across items= {np.power(jensenshannon(emp_probs, pred_probs), 2).mean()}')
-    print(f'Average KL divergence across items= {entropy(emp_probs, pred_probs).mean()}')
+    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(emp_probs, pred_probs), 2).mean()}')
+    print(f'Average KL divergence across items = {entropy(emp_probs, pred_probs).mean()}')
     print(
         f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)}')
 
