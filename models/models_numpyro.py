@@ -147,12 +147,13 @@ def hierarchical_dawid_skene(positions, annotations,logits):
             numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
 
 
-def item_difficulty(annotations,logits):
+def item_difficulty(annotations,logits, test:bool=False ):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
     num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
+
 
     with numpyro.plate("class", num_classes):
         eta = numpyro.sample(
@@ -161,21 +162,18 @@ def item_difficulty(annotations,logits):
         chi = numpyro.sample(
             "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
-
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)),obs = nn.softmax(logits).mean(0))
-    # pi = nn.softmax(logits).mean(0)
-    c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
-
-    with numpyro.plate("item", num_items, dim=-2):
-        # c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
-
+        # theta not item dependent, only class dependent vs item dependent in original
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
-            theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
+            theta = numpyro.sample("theta", dist.Normal(eta, chi).to_event(1))
             theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
 
-        with numpyro.plate("position", annotations.shape[-1]):
-            numpyro.sample("y", dist.Categorical(logits=theta), obs=annotations)
+    with numpyro.plate("item", num_items, dim=-2):
+        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+        with numpyro.plate("position", num_positions):
+            if test:
+                numpyro.sample("y", dist.Categorical(logits=theta))
+            else:
+            numpyro.sample("y", dist.Categorical(logits=theta[c]), obs=annotations)
 
 
 def logistic_random_effects(positions, annotations,logits, test:bool=False):
