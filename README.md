@@ -37,4 +37,4 @@ Average KL divergence across items= 1.4264024275823348
 Binary F1 score with majority vote = 0.3888888888888889
 
 # Acknowledgements
-We strongly rely on the Bayesian models implementation provided in the [Pyro annotation example](https://num.pyro.ai/en/latest/examples/annotation.html)
+We strongly rely on the Bayesian models implementation provided in the [Pyro annotation example](https://num.pyro.ai/en/latest/examples/annotation.html) and the article ["Comparing Bayesian Models of Annotation"](https://aclanthology.org/Q18-1040.pdf).
