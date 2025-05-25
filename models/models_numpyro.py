@@ -70,7 +70,7 @@ def dawid_skene(positions, annotations, masks, num_classes, use_llm_prior=False,
                     )
 
 
-def mace(positions, annotations, logits, test:bool=False):
+def mace(positions, annotations, logits=None, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 3 of reference [1].
     """
@@ -108,7 +108,7 @@ def mace(positions, annotations, logits, test:bool=False):
 
 
 
-def hierarchical_dawid_skene(positions, annotations,logits, test:bool=False):
+def hierarchical_dawid_skene(positions, annotations, logits=None, test:bool=False):
     """
     This model corresponds to the plate diagram in Figure 4 of reference [1].
     """
