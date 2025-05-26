@@ -43,6 +43,10 @@ if __name__ == "__main__":
     kl_divs = []
     f1s    = []
 
+    js_divs_argmax = []
+    kl_divs_argmax = []
+    f1s_argmax    = []
+
 
     for fold_idx, (train_idx, test_idx) in enumerate(splits, 1):
         print(f"\n=== Fold {fold_idx} ===")
@@ -104,6 +108,7 @@ if __name__ == "__main__":
         kl = entropy(emp_probs, pred_probs).mean()
         fv = f1_score(np.rint(ann_test.mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)
 
+        print('---- logregression baseline ----')
         print(f"Average JS divergence = {js:.4f}")
         print(f"Average KL divergence = {kl:.4f}")
         print(f"Binary F1 (majority vote) = {fv:.4f}")
@@ -112,8 +117,43 @@ if __name__ == "__main__":
         kl_divs.append(kl)
         f1s.append(fv)
 
+        # ---- part for argmax baseline  ----
+        num_train_fold = len(train_idx) * annotators.shape[1]
+        test_interleaved_logits = interleaved_logits[num_train_fold:]
+
+        # pred_argmax will have shape (num_test_items, num_annotators) with 0/1 predictions for each annotation.
+        pred_argmax = np.argmax(test_interleaved_logits, axis=-1).reshape(-1, annotators.shape[1])
+        
+        # predicted probabilities -> reshape to (num_test_items, num_annotators)
+        p1_test_individual = jax.nn.softmax(test_interleaved_logits, axis=-1)[:, 1]
+        p1_test_reshaped = p1_test_individual.reshape(-1, annotators.shape[1])
+
+        # Average P(class=1) across annotators for each item
+        p1_test_item_avg = p1_test_reshaped.mean(axis=1)
+        # Construct the probability distribution [P(class=1), P(class=0)] for each test item
+        probs_for_js_kl_argmax = np.vstack((p1_test_item_avg, 1 - p1_test_item_avg))
+
+        print('---- argmax baseline ----')
+        js_argmax = np.power(jensenshannon(emp_probs, probs_for_js_kl_argmax), 2).mean()
+        kl_argmax = entropy(emp_probs, probs_for_js_kl_argmax).mean()
+        
+        # np.rint(ann_test.mean(1)) gives the majority vote for true labels.
+        # np.rint(pred_argmax.mean(axis=1)) gives the majority vote for predicted labels from argmax.
+        # pred_argmax already contains 0/1 predictions from np.argmax.
+        fv_argmax = f1_score(np.rint(ann_test.mean(1)), np.rint(pred_argmax.mean(axis=1)), pos_label=1)
+        print(f"JS (argmax): {js_argmax:.4f}, KL (argmax): {kl_argmax:.4f}, F1 (argmax): {fv_argmax:.4f}")
+
+        js_divs_argmax.append(js_argmax)
+        kl_divs_argmax.append(kl_argmax)
+        f1s_argmax.append(fv_argmax)
+
     # --- Summary across folds ---
-    print("\n=== Cross-Validation Summary ===")
+    print("\n=== Cross-Validation Summary for logregression ===")
     print(f"Mean JS divergence: {np.mean(js_divs):.4f} ± {np.std(js_divs):.4f}")
     print(f"Mean KL divergence: {np.mean(kl_divs):.4f} ± {np.std(kl_divs):.4f}")
     print(f"Mean F1 (maj. vote): {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")
+
+    print("\n=== Cross-Validation Summary for argmax baseline ===")
+    print(f"Mean JS divergence: {np.mean(js_divs_argmax):.4f} ± {np.std(js_divs_argmax):.4f}")
+    print(f"Mean KL divergence: {np.mean(kl_divs_argmax):.4f} ± {np.std(kl_divs_argmax):.4f}")
+    print(f"Mean F1 (maj. vote): {np.mean(f1s_argmax):.4f} ± {np.std(f1s_argmax):.4f}")
