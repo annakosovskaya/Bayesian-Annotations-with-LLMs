@@ -108,7 +108,7 @@ if __name__ == "__main__":
         kl = entropy(emp_probs, pred_probs).mean()
         fv = f1_score(np.rint(ann_test.mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)
 
-        print('---- logregression baseline ----')
+        print('---- logistic regression baseline ----')
         print(f"Average JS divergence = {js:.4f}")
         print(f"Average KL divergence = {kl:.4f}")
         print(f"Binary F1 (majority vote) = {fv:.4f}")
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         f1s_argmax.append(fv_argmax)
 
     # --- Summary across folds ---
-    print("\n=== Cross-Validation Summary for logregression ===")
+    print("\n=== Cross-Validation Summary for logistic regression baseline ===")
     print(f"Mean JS divergence: {np.mean(js_divs):.4f} ± {np.std(js_divs):.4f}")
     print(f"Mean KL divergence: {np.mean(kl_divs):.4f} ± {np.std(kl_divs):.4f}")
     print(f"Mean F1 (maj. vote): {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")
