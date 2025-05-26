@@ -141,7 +141,7 @@ if __name__ == "__main__":
         # np.rint(pred_argmax.mean(axis=1)) gives the majority vote for predicted labels from argmax.
         # pred_argmax already contains 0/1 predictions from np.argmax.
         fv_argmax = f1_score(np.rint(ann_test.mean(1)), np.rint(pred_argmax.mean(axis=1)), pos_label=1)
-        print(f"JS (argmax): {js_argmax:.4f}, KL (argmax): {kl_argmax:.4f}, F1 (argmax): {fv_argmax:.4f}")
+        print(f"Average JS divergence: {js_argmax:.4f}, Mean KL divergence: {kl_argmax:.4f}, Mean F1 (maj. vote): {fv_argmax:.4f}")
 
         js_divs_argmax.append(js_argmax)
         kl_divs_argmax.append(kl_argmax)
