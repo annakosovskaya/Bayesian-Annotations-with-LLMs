@@ -16,57 +16,104 @@ from utils.data_utils import read_jsonl
 from models.logistic_regression_jax import LogisticRegression
 from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 
+from sklearn.model_selection import StratifiedShuffleSplit
+
+from utils.data_utils import read_jsonl, process_annotations, create_annotator_mapping
+
+
+
 if __name__ == "__main__":
 
     res = read_jsonl(config.TRAIN_FILE_PATH)
     annotators = np.array([np.array(it["annotators"]) for it in res if len(it["annotators"]) == 3])
     annotations = np.array([np.array(it["labels"]) for it in res if len(it["annotators"]) == 3])
+    positions_, annotations_, masks_ = process_annotations(res)
+    global_num_classes = int(np.max(annotations_)) + 1
     logits = np.load(config.LOGITS_PATH)
     logits = np.array([x for i, x in enumerate(logits[:, :2]) if len(res[i]["annotators"]) == 3])
 
-    model = LogisticRegression(input_dim=logits.shape[1] + 1)
-    params = model.params
+    #Prepare stratified splits
+    annotations_balance = np.sum(annotations, axis=1)
+    sss = StratifiedShuffleSplit(n_splits=5, test_size=0.1, random_state=42)
 
-    train_size = round(annotations.shape[0] * 0.9)
+    splits = list(sss.split(logits, annotations_balance))
 
-    interleaved_logits = []
-    interleaved_annotations = []
+    # Collect results across splits
+    js_divs = []
+    kl_divs = []
+    f1s    = []
 
-    for i in range(annotators.shape[0]):
-        for j in range(annotators.shape[1]):
-            interleaved_logits.append(logits[i])
-            interleaved_annotations.append(annotations[i][j])
 
-    interleaved_logits = np.array(interleaved_logits)
-    interleaved_annotations = np.array(interleaved_annotations)
+    for fold_idx, (train_idx, test_idx) in enumerate(splits, 1):
+        print(f"\n=== Fold {fold_idx} ===")
 
-    train_data = (
-        (np.concat((np.expand_dims(annotators[:train_size].flatten(), axis=1), interleaved_logits[:train_size * annotators.shape[1]]), axis=1), interleaved_annotations[:train_size * annotators.shape[1]])
-    )
+        # Slice data for this split
+        logits_train       = logits[train_idx]
+        logits_test        = logits[test_idx]
 
-    test_data = (
-        (np.concat((np.expand_dims(annotators[train_size:].flatten(), axis=1), interleaved_logits[train_size * annotators.shape[1]:]), axis=1), interleaved_annotations[train_size * annotators.shape[1]:])
-    )
+        ann_train          = annotations[train_idx]
+        ann_test           = annotations[test_idx]
 
-    # Training loop
-    clf = SklearnLogisticRegression(max_iter=10000)
-    clf.fit(train_data[0], train_data[1])
+        ators_train        = annotators[train_idx]
+        ators_test         = annotators[test_idx]
 
-    pred = clf.predict(test_data[0])
-    pred_probs = clf.predict_proba(test_data[0])[:, 1]
+        model = LogisticRegression(input_dim=logits_train.shape[1] + 1)
+        params = model.params
 
-    print('------------- logistic regression -------------')
-    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(test_data[1], pred_probs), 2).mean()}')
-    print(f'Average KL divergence across items = {entropy(test_data[1], pred_probs).mean()}')
-    print(
-        f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(pred.reshape((-1, 3))).mean(1)), pos_label=1)}')
-    
-    # --------------- argmax baseline ---------------
-    prob_pred = np.copy(nn.softmax(interleaved_logits[train_size * annotators.shape[1]:], axis=-1))[:, 1]  # logits as predicted probabilities
-    argmax_pred = np.argmax(interleaved_logits[train_size * annotators.shape[1]:], axis=-1)
+        train_size = round(annotations.shape[0] * 0.9)
 
-    print('------------- argmax baseline -------------')
-    print(f'Average Jensen-Shannon divergence across items = {np.power(jensenshannon(test_data[1], prob_pred), 2).mean()}')
-    print(f'Average KL divergence across items = {entropy(test_data[1], prob_pred).mean()}')
-    print(
-        f'Binary F1 score with majority vote = {f1_score(np.rint(annotations[train_size:].mean(1)), np.rint(np.rint(argmax_pred.reshape((-1, 3))).mean(1)), pos_label=1)}')
+        # Interleave logits and annotations for train and test separately
+        interleaved_logits = []
+        interleaved_annotations = []
+
+        # For train set
+        for i in train_idx:
+            for j in range(annotators.shape[1]):
+                interleaved_logits.append(logits[i])
+                interleaved_annotations.append(annotations[i][j])
+
+        # For test set
+        for i in test_idx:
+            for j in range(annotators.shape[1]):
+                interleaved_logits.append(logits[i])
+                interleaved_annotations.append(annotations[i][j])
+
+        interleaved_logits = np.array(interleaved_logits)
+        interleaved_annotations = np.array(interleaved_annotations)
+
+        train_data = (
+            (np.concat((np.expand_dims(ators_train.flatten(), axis=1), interleaved_logits[:train_size * annotators.shape[1]]), axis=1), interleaved_annotations[:train_size * annotators.shape[1]])
+        )
+
+        test_data = (
+            (np.concat((np.expand_dims(ators_test.flatten(), axis=1), interleaved_logits[train_size * annotators.shape[1]:]), axis=1), interleaved_annotations[train_size * annotators.shape[1]:])
+        )
+
+        # Training loop
+        clf = SklearnLogisticRegression(max_iter=10000)
+        clf.fit(train_data[0], train_data[1])
+
+        annotator_probs = clf.predict_proba(test_data[0])[:, 1]
+        # Reshape so each row corresponds to one sample, columns to annotators
+        annotator_probs = annotator_probs.reshape(-1, annotators.shape[1])
+
+        pred_probs = np.vstack((annotator_probs.mean(1), 1 - annotator_probs.mean(1)))
+        emp_probs  = np.vstack((ann_test.mean(1),           1 - ann_test.mean(1)))
+
+        js = np.power(jensenshannon(emp_probs, pred_probs), 2).mean()
+        kl = entropy(emp_probs, pred_probs).mean()
+        fv = f1_score(np.rint(ann_test.mean(1)), np.rint(np.rint(annotator_probs).mean(1)), pos_label=1)
+
+        print(f"Average JS divergence = {js:.4f}")
+        print(f"Average KL divergence = {kl:.4f}")
+        print(f"Binary F1 (majority vote) = {fv:.4f}")
+
+        js_divs.append(js)
+        kl_divs.append(kl)
+        f1s.append(fv)
+
+    # --- Summary across folds ---
+    print("\n=== Cross-Validation Summary ===")
+    print(f"Mean JS divergence: {np.mean(js_divs):.4f} ± {np.std(js_divs):.4f}")
+    print(f"Mean KL divergence: {np.mean(kl_divs):.4f} ± {np.std(kl_divs):.4f}")
+    print(f"Mean F1 (maj. vote): {np.mean(f1s):.4f} ± {np.std(f1s):.4f}")

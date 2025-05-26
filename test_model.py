@@ -35,8 +35,10 @@ if __name__ == "__main__":
 
     splits = list(sss.split(logits, annotations_balance))
 
+    ITEM_VAR_DEPENDENT_MODELS= [item_difficulty]
+
     # Choose model here
-    model = item_difficulty
+    model = logistic_random_effects
 
     # Collect results across splits
     js_divs = []
@@ -68,6 +70,10 @@ if __name__ == "__main__":
         elif model == dawid_skene:
             train_data = (positions_, ann_train, masks_[train_idx], global_num_classes, True, logits_train)
             test_data  = (positions_, ann_test,  masks_[test_idx],  global_num_classes, True, logits_test, [True] * len(test_idx))
+        # elif model == logistic_random_effects:
+        #     mask = jnp.array([True] * logits_train.shape[0] + [False] * logits_test.shape[0]).reshape(-1, 1)
+        #     mask = jnp.tile(mask, (1, 3))
+        #     train_data = (annotations, annotators, logits, None)
         else:  # hierarchical_dawid_skene, mace, logistic_random_effects
             train_data = (ators_train, ann_train, logits_train)
             test_data  = (ators_test,  ann_test,  logits_test,  [True] * len(test_idx))
@@ -86,12 +92,12 @@ if __name__ == "__main__":
 
         posterior = mcmc.get_samples()
         predictive = Predictive(model, posterior, infer_discrete=True)
-        if model == item_difficulty:
+        if model in ITEM_VAR_DEPENDENT_MODELS:
             discrete_samples = predictive(random.PRNGKey(seed + 100), *train_data)
         else:
             discrete_samples = predictive(random.PRNGKey(seed + 100), *test_data)
 
-        if model == item_difficulty:
+        if model in ITEM_VAR_DEPENDENT_MODELS:
             annotator_probs = vmap(lambda x: x.mean(0), in_axes=1)(
                 discrete_samples["y_unobserved"][:, logits_train.shape[0]:],
             )
