@@ -23,15 +23,16 @@ def multinomial(annotations,logits=None,test:bool=False):
 
     if logits is None:
         pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-    # pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)),obs=nn.softmax(logits).mean(0))
-    # pi = nn.softmax(logits).mean(0)
-    # c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+    else:
+        w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+        bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+        embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
 
     with numpyro.plate("item", num_items, dim=-2):
         if logits is None:
             c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
         else:
-            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+            c = numpyro.sample("c", dist.Categorical(logits = embedding[:, np.newaxis, :]), infer={"enumerate": "parallel"})
         with numpyro.plate("position", num_positions):
             if test:
                 numpyro.sample("y", dist.Categorical(zeta[c]))
@@ -42,21 +43,24 @@ def dawid_skene(positions, annotations, masks, num_classes, use_llm_prior=False,
     num_annotators = int(np.max(positions)) + 1
     num_items, num_positions = annotations.shape
 
-    llm_probs = nn.softmax(logits)
-
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             beta = numpyro.sample("beta", dist.Dirichlet(jnp.ones(num_classes)))
     
-    if use_llm_prior:
-        assert llm_probs is not None, "LLM probabilities must be provided if use_llm_prior is True"
-        pi = jnp.array(llm_probs[:,np.newaxis,:])
+    # if use_llm_prior:
+    #     llm_probs = nn.softmax(logits)
+    #     assert llm_probs is not None, "LLM probabilities must be provided if use_llm_prior is True"
+    #     pi = jnp.array(llm_probs[:,np.newaxis,:])
 
-    else:
-        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    # else:
+    #     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+
+    w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+    bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+    embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        c = numpyro.sample("c", dist.Categorical(probs=embedding[:, np.newaxis, :]), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             with mask(mask=masks):
@@ -84,13 +88,17 @@ def mace(positions, annotations, logits=None, test:bool=False):
 
     if logits is None:
         pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    else:
+        w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+        bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+        embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
 
     with numpyro.plate("item", num_items, dim=-2):
 
         if logits is None:
             c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
         else:
-            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+            c = numpyro.sample("c", dist.Categorical(logits = embedding[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             s = numpyro.sample(
@@ -137,13 +145,17 @@ def hierarchical_dawid_skene(positions, annotations, logits=None, test:bool=Fals
 
     if logits is None:
         pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    else:
+        w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+        bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+        embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
     
 
     with numpyro.plate("item", num_items, dim=-2):
         if logits is None:
             c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
         else:
-            c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+            c = numpyro.sample("c", dist.Categorical(logits = embedding[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
         with numpyro.plate("position", num_positions):
             if test:
@@ -170,8 +182,12 @@ def item_difficulty(annotations,logits,mask=None):
             "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
 
+    w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+    bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+    embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
+
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
+        c = numpyro.sample("c", dist.Categorical(logits = embedding[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
@@ -212,15 +228,17 @@ def logistic_random_effects(positions, annotations,logits, test=False):
     w = numpyro.sample("w", dist.Normal(0, 1).expand([num_classes - 1, num_features]).to_event(2))
     bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
 
-    theta_raw = jnp.einsum('ik,jk->ij', logits, w) + bias  # (num_items, num_classes-1)
-    theta = jnp.pad(theta_raw, [(0, 0), (0, 1)])
+    embedding = jnp.einsum('ik,jk->ij', logits, w) + bias  # (num_items, num_classes-1)
+
+    # theta_raw = numpyro.sample("theta_raw", dist.Normal(0, embedding).to_event(1))
+    # theta = jnp.pad(theta_raw, [(0, 0)] * (jnp.ndim(theta_raw) - 1) +  [(0, 1)])
 
     with numpyro.plate("item", num_items, dim=-2):
         
-        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})        
+        c = numpyro.sample("c", dist.Categorical(logits = embedding), infer={"enumerate": "parallel"})        
 
         with numpyro.plate("position", num_positions):
-            y_logits = Vindex(beta)[positions, c, :] - theta[c]
+            y_logits = Vindex(beta)[positions, c, :]
             with numpyro.plate("position", num_positions):
                 if test:
                     numpyro.sample("y", dist.Categorical(logits=y_logits))
