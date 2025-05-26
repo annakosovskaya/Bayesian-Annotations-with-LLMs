@@ -39,40 +39,38 @@ def multinomial(annotations,logits=None,test:bool=False):
             else:
                 numpyro.sample("y", dist.Categorical(zeta[c]), obs=annotations)
 
-def dawid_skene(positions, annotations, masks, num_classes, use_llm_prior=False, logits=None, test:bool=False):
+def dawid_skene(positions, annotations, logits, test:bool=False):
+    """
+    This model corresponds to the plate diagram in Figure 2 of reference [1].
+    """
     num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             beta = numpyro.sample("beta", dist.Dirichlet(jnp.ones(num_classes)))
-    
-    # if use_llm_prior:
-    #     llm_probs = nn.softmax(logits)
-    #     assert llm_probs is not None, "LLM probabilities must be provided if use_llm_prior is True"
-    #     pi = jnp.array(llm_probs[:,np.newaxis,:])
 
-    # else:
-    #     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
-
-    w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
-    bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
-    embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
+    if logits is None:
+        pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
+    else:
+        w = numpyro.sample("w", dist.Normal(0, 1).expand([logits.shape[-1], num_classes]).to_event(2))
+        bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes]).to_event(1))
+        embedding = jnp.einsum('ik,kj->ij', logits, w) + bias  # (num_items, num_classes)
 
     with numpyro.plate("item", num_items, dim=-2):
-        c = numpyro.sample("c", dist.Categorical(probs=embedding[:, np.newaxis, :]), infer={"enumerate": "parallel"})
+        if logits is None:
+            c = numpyro.sample("c", dist.Categorical(probs=pi), infer={"enumerate": "parallel"})
+        else:
+            c = numpyro.sample("c", dist.Categorical(logits = embedding[:,np.newaxis,:]), infer={"enumerate": "parallel"})
 
+        # here we use Vindex to allow broadcasting for the second index `c`
+        # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
         with numpyro.plate("position", num_positions):
-            with mask(mask=masks):
-                if test:
-                    y=numpyro.sample(
-                        "y", dist.Categorical(Vindex(beta)[positions, c, :])
-                    )
-                else:
-                    y=numpyro.sample(
-                        "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
-                    )
-
+            if test:
+                numpyro.sample("y", dist.Categorical(Vindex(beta)[positions, c, :]))
+            else:
+                numpyro.sample("y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations)
 
 def mace(positions, annotations, logits=None, test:bool=False):
     """

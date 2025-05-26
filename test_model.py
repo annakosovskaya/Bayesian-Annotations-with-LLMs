@@ -38,7 +38,7 @@ if __name__ == "__main__":
     ITEM_VAR_DEPENDENT_MODELS= [item_difficulty]
 
     # Choose model here
-    model = logistic_random_effects
+    model = dawid_skene
 
     # Collect results across splits
     js_divs = []
@@ -67,9 +67,9 @@ if __name__ == "__main__":
             mask = jnp.array([True] * logits_train.shape[0] + [False] * logits_test.shape[0]).reshape(-1, 1)
             mask = jnp.tile(mask, (1, 3))
             train_data = (annotations,logits, mask)
-        elif model == dawid_skene:
-            train_data = (positions_, ann_train, masks_[train_idx], global_num_classes, True, logits_train)
-            test_data  = (positions_, ann_test,  masks_[test_idx],  global_num_classes, True, logits_test, [True] * len(test_idx))
+        # elif model == dawid_skene:
+        #     train_data = (positions_, ann_train, masks_[train_idx], global_num_classes, True, logits_train)
+        #     test_data  = (positions_, ann_test,  masks_[test_idx],  global_num_classes, True, logits_test, [True] * len(test_idx))
         # elif model == logistic_random_effects:
         #     mask = jnp.array([True] * logits_train.shape[0] + [False] * logits_test.shape[0]).reshape(-1, 1)
         #     mask = jnp.tile(mask, (1, 3))
@@ -91,7 +91,7 @@ if __name__ == "__main__":
         mcmc.print_summary()
 
         posterior = mcmc.get_samples()
-        predictive = Predictive(model, posterior, infer_discrete=True)
+        predictive = Predictive(model, posterior, infer_discrete=False)
         if model in ITEM_VAR_DEPENDENT_MODELS:
             discrete_samples = predictive(random.PRNGKey(seed + 100), *train_data)
         else:
