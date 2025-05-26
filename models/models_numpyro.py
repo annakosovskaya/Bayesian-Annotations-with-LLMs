@@ -180,7 +180,7 @@ def item_difficulty(annotations,logits,mask=None):
         with numpyro.plate("position", num_positions):
             numpyro.sample("y", dist.Categorical(logits=theta), obs=annotations, obs_mask=mask)
 
-def logistic_random_effects(positions, annotations,logits, mask=None):
+def logistic_random_effects(positions, annotations,logits, test=False):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
@@ -195,9 +195,9 @@ def logistic_random_effects(positions, annotations,logits, mask=None):
         omega = numpyro.sample(
             "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
         )
-        chi = numpyro.sample(
-            "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
-        )
+        # chi = numpyro.sample(
+        #     "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
+        # )
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
@@ -205,16 +205,24 @@ def logistic_random_effects(positions, annotations,logits, mask=None):
                 beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
                 beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
+    # theta: item-specific random effect, regressed on logits using numpyro
+    num_items = logits.shape[0]
+    num_features = logits.shape[-1]
+
+    w = numpyro.sample("w", dist.Normal(0, 1).expand([num_classes - 1, num_features]).to_event(2))
+    bias = numpyro.sample("bias", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
+
+    theta_raw = jnp.einsum('ik,jk->ij', logits, w) + bias  # (num_items, num_classes-1)
+    theta = jnp.pad(theta_raw, [(0, 0), (0, 1)])
+
     with numpyro.plate("item", num_items, dim=-2):
         
-        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})
-
-        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
-            theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
-            theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
-        
+        c = numpyro.sample("c", dist.Categorical(logits = logits[:,np.newaxis,:]), infer={"enumerate": "parallel"})        
 
         with numpyro.plate("position", num_positions):
-            y_logits = Vindex(beta)[positions, c, :] - theta
+            y_logits = Vindex(beta)[positions, c, :] - theta[c]
             with numpyro.plate("position", num_positions):
-                numpyro.sample("y", dist.Categorical(logits=y_logits), obs=annotations, obs_mask=mask)
+                if test:
+                    numpyro.sample("y", dist.Categorical(logits=y_logits))
+                else:
+                    numpyro.sample("y", dist.Categorical(logits=y_logits), obs=annotations)
